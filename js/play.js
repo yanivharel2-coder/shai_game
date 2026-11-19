@@ -172,8 +172,29 @@
     mini: function (box, cb) { simon(box, true, cb); }
   };
 
-  /* ===================== מבוך באצבע ===================== */
-  var LEVELS = [[4, 3], [5, 4], [6, 4], [7, 5], [8, 5], [9, 6]];
+  /* ===================== מבוך באצבע (20 שלבים ברמת קושי עולה) ===================== */
+  var LEVELS = [
+    [4, 3],   /* שלב 1 */
+    [5, 3],   /* שלב 2 */
+    [5, 4],   /* שלב 3 */
+    [6, 4],   /* שלב 4 */
+    [7, 4],   /* שלב 5 */
+    [7, 5],   /* שלב 6 */
+    [8, 5],   /* שלב 7 */
+    [8, 6],   /* שלב 8 */
+    [9, 6],   /* שלב 9 */
+    [10, 6],  /* שלב 10 */
+    [10, 7],  /* שלב 11 */
+    [11, 7],  /* שלב 12 */
+    [11, 8],  /* שלב 13 */
+    [12, 8],  /* שלב 14 */
+    [13, 8],  /* שלב 15 */
+    [13, 9],  /* שלב 16 */
+    [14, 9],  /* שלב 17 */
+    [14, 10], /* שלב 18 */
+    [15, 10], /* שלב 19 */
+    [16, 11]  /* שלב 20 */
+  ];
 
   function genMaze(cols, rows) {
     var Rw = [], Bw = [], vis = [], r, c;
@@ -195,32 +216,57 @@
       else if (n[2] === "d") Bw[r][c] = false;
       else if (n[2] === "l") Rw[r][c - 1] = false;
       else Rw[r][c] = false;
-      vis[n[0]][n[1]] = true; stack.push([n[0], n[1]]);
+      vis[n[0]][n[1]] = true; stack.push([n[0]][n[1]] ? [n[0], n[1]] : [n[0], n[1]]);
     }
     return { R: Rw, B: Bw };
   }
 
-  function maze(container, lv, mini, onDone) {
-    var dims = LEVELS[Math.min(lv, LEVELS.length - 1)];
-    if (mini) dims = LEVELS[0];
+  function pickMazeLevel(container) {
+    var current = Math.max(0, Math.min(G.store.load().mazeLevel || 0, LEVELS.length - 1));
+    var btns = LEVELS.map(function (_, i) {
+      var cls = i === current ? "btn" : "btn alt";
+      return '<button class="' + cls + ' lv-btn" data-lv="' + i + '">שלב ' + (i + 1) + '</button>';
+    }).join("");
     container.innerHTML =
-      '<section class="maze"><div class="puz-bar"><div class="chip on">' + (mini ? "הובילו אל הכוכב" : "מבוך " + (lv + 1) + " מתוך " + LEVELS.length) + '</div>' +
-      (mini ? "" : '<button class="btn small alt" id="mzNew">🔄 מבוך חדש</button>') + '</div>' +
+      '<section class="menu">' +
+        '<h2>בחרו מבוך (20 שלבים)</h2>' +
+        '<div class="level-grid">' + btns + '</div>' +
+      '</section>';
+    container.querySelectorAll("[data-lv]").forEach(function (b) {
+      b.onclick = function () {
+        var chosen = +b.dataset.lv;
+        var a = G.store.load(); a.mazeLevel = chosen; G.store.save(a);
+        maze(container, chosen, false);
+      };
+    });
+  }
+
+  function maze(container, lv, mini, onDone) {
+    var safeLv = Math.max(0, Math.min(lv, LEVELS.length - 1));
+    var dims = mini ? LEVELS[0] : LEVELS[safeLv];
+    container.innerHTML =
+      '<section class="maze"><div class="puz-bar"><div class="chip on">' + (mini ? "הובילו אל הכוכב" : "מבוך " + (safeLv + 1) + " מתוך " + LEVELS.length) + '</div>' +
+      (mini ? "" : '<button class="btn small alt" id="mzNew">🔄 מבוך חדש</button><button class="btn small alt" id="mzLevels">🎯 שלבים</button>') + '</div>' +
       '<div class="maze-area"><canvas class="maze-cv"></canvas></div></section>';
     var area = container.querySelector(".maze-area"), cv = container.querySelector("canvas");
     var rc = area.getBoundingClientRect();
-    var cols = dims[0], rows = dims[1];
+    var portrait = rc.height > rc.width;
+    var cols = portrait ? dims[1] : dims[0];
+    var rows = portrait ? dims[0] : dims[1];
+
+    /* התאמת גודל תא לטאבלט כדי שגם שלב 20 יהיה נוח לגרירה באצבע */
+    var minCell = 30;
     var cs = Math.floor(Math.min((rc.width - 12) / cols, (rc.height - 12) / rows, 120));
-    while (cs < 56 && (cols > 3 || rows > 3)) {
-      if (cols >= rows && cols > 3) cols--; else if (rows > 3) rows--;
+    while (cs < minCell && (cols > 4 || rows > 3)) {
+      if (cols >= rows && cols > 4) cols--; else if (rows > 3) rows--;
       cs = Math.floor(Math.min((rc.width - 12) / cols, (rc.height - 12) / rows, 120));
     }
-    cs = Math.max(cs, 40);
+    cs = Math.max(cs, 28);
     var Wd = cols * cs, Ht = rows * cs, dpr = Math.min(window.devicePixelRatio || 1, 2);
     cv.width = Wd * dpr; cv.height = Ht * dpr; cv.style.width = Wd + "px"; cv.style.height = Ht + "px";
     var ctx = cv.getContext("2d");
     var M = genMaze(cols, rows);
-    var th = Math.max(7, Math.round(cs * 0.11));
+    var th = Math.max(5, Math.round(cs * 0.12));
 
     /* קירות כקטעים וכמלבני התנגשות */
     var segs = [[0, 0, Wd, 0], [0, Ht, Wd, Ht], [0, 0, 0, Ht], [Wd, 0, Wd, Ht]], r, c;
@@ -231,7 +277,7 @@
     var rects = segs.map(function (s) {
       return [Math.min(s[0], s[2]) - th / 2, Math.min(s[1], s[3]) - th / 2, Math.max(s[0], s[2]) + th / 2, Math.max(s[1], s[3]) + th / 2];
     });
-    var mr = Math.max(9, cs * 0.2);
+    var mr = Math.max(7, cs * 0.22);
     var px = (cols - 1) * cs + cs / 2, py = cs / 2;         /* התחלה: למעלה מימין */
     var gx = cs / 2, gy = (rows - 1) * cs + cs / 2;          /* סוף: למטה משמאל */
     var trail = [[px, py]], won = false;
@@ -261,9 +307,9 @@
       segs.forEach(function (s) { ctx.moveTo(s[0], s[1]); ctx.lineTo(s[2], s[3]); });
       ctx.stroke();
       ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      ctx.font = Math.round(cs * 0.5) + 'px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+      ctx.font = Math.round(cs * 0.52) + 'px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
       ctx.fillText("⭐", gx, gy);
-      ctx.fillStyle = "#ffd23f"; ctx.strokeStyle = "#14183a"; ctx.lineWidth = 3;
+      ctx.fillStyle = "#ffd23f"; ctx.strokeStyle = "#14183a"; ctx.lineWidth = 2.5;
       ctx.beginPath(); ctx.arc(px, py, mr, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
       ctx.font = Math.round(mr * 1.5) + 'px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
       ctx.fillStyle = "#14183a";
@@ -276,7 +322,7 @@
       while (guard++ < 500) {
         var dx = tx - px, dy = ty - py, d = Math.hypot(dx, dy);
         if (d < 1) break;
-        var s = Math.min(3, d), sx = dx / d * s, sy = dy / d * s, moved = false;
+        var s = Math.min(2.5, d), sx = dx / d * s, sy = dy / d * s, moved = false;
         if (!hit(px + sx, py)) { px += sx; moved = true; }
         if (!hit(px, py + sy)) { py += sy; moved = true; }
         if (!moved) break;
@@ -288,28 +334,30 @@
       return [(e.clientX - r.left) * Wd / r.width, (e.clientY - r.top) * Ht / r.height];
     }
     function win() {
-      won = true; G.sfx.win(); G.confetti(mini ? 30 : 80);
+      won = true; G.sfx.win(); G.confetti(mini ? 30 : 85);
       if (mini) { G.later(function () { onDone(true); }, 1000); return; }
-      var last = lv >= LEVELS.length - 1;
-      var next = last ? 0 : lv + 1;
+      var last = safeLv >= LEVELS.length - 1;
+      var next = last ? 0 : safeLv + 1;
       var a = G.store.load(); a.mazeLevel = next; G.store.save(a);
       G.later(function () {
         G.dialog({
-          art: '<span style="font-size:90px">🌟</span>',
-          title: last ? "סיימת את כל המבוכים!" : "כל הכבוד! עברת את המבוך",
+          art: '<span style="font-size:90px">' + (last ? "👑" : "🌟") + '</span>',
+          title: last ? "אלוף המבוכים! סיימת את כל 20 השלבים!" : "כל הכבוד! עברת את מבוך " + (safeLv + 1) + "!",
+          text: last ? "עברת את כל המבוכים בהצלחה!" : "מוכן למבוך " + (next + 1) + " מתוך " + LEVELS.length + "?",
           buttons: [
-            { label: last ? "מתחילים מחדש" : "מבוך הבא", onClick: function () { maze(container, next, false); } },
+            { label: last ? "מתחילים מחדש 🔄" : "מבוך הבא ⬅️", onClick: function () { maze(container, next, false); } },
+            { label: "שוב אותו מבוך", cls: "alt", onClick: function () { maze(container, safeLv, false); } },
             { label: "תפריט", cls: "alt", onClick: function () { G.go("home"); } }
           ]
         });
-      }, 1200);
+      }, 1000);
     }
 
     var drag = null;
     cv.addEventListener("pointerdown", function (e) {
       if (won) return;
       var p = pos(e);
-      if (Math.hypot(p[0] - px, p[1] - py) < Math.max(46, cs * 0.8)) {
+      if (Math.hypot(p[0] - px, p[1] - py) < Math.max(46, cs * 0.95)) {
         e.preventDefault();
         try { cv.setPointerCapture(e.pointerId); } catch (err) {}
         drag = { ox: px - p[0], oy: py - p[1] };
@@ -320,13 +368,15 @@
       var p = pos(e);
       moveTo(p[0] + drag.ox, p[1] + drag.oy);
       draw();
-      if (Math.hypot(px - gx, py - gy) < cs * 0.32) { drag = null; draw(); win(); }
+      if (Math.hypot(px - gx, py - gy) < cs * 0.35) { drag = null; draw(); win(); }
     });
     function up() { drag = null; }
     cv.addEventListener("pointerup", up);
     cv.addEventListener("pointercancel", up);
     var nb = container.querySelector("#mzNew");
-    if (nb) nb.onclick = function () { maze(container, lv, false); };
+    if (nb) nb.onclick = function () { maze(container, safeLv, false); };
+    var lb = container.querySelector("#mzLevels");
+    if (lb) lb.onclick = function () { pickMazeLevel(container); };
   }
 
   window.Maze = {

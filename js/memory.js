@@ -1,6 +1,20 @@
-/* משחק זיכרון: רמה אחת, הכי הרבה קלפים שנכנסים במסך, שחקן אחד או שניים */
+/* משחק זיכרון: 10 שלבים ברמת קושי עולה, שחקן אחד או שניים */
 (function () {
   var GAP = 10;
+
+  /* 10 שלבים: עמודות, שורות, מספר קלפים, שם שלב */
+  var MEMORY_LEVELS = [
+    { c: 2, r: 2, label: "חימום קל (4 קלפים)" },
+    { c: 3, r: 2, label: "מתחילים (6 קלפים)" },
+    { c: 4, r: 2, label: "צעד קדימה (8 קלפים)" },
+    { c: 4, r: 3, label: "אתגר בינוני (12 קלפים)" },
+    { c: 4, r: 4, label: "זיכרון חד (16 קלפים)" },
+    { c: 5, r: 4, label: "אלופי הזיכרון (20 קלפים)" },
+    { c: 6, r: 4, label: "גיבורי על (24 קלפים)" },
+    { c: 7, r: 4, label: "מאסטר הזיכרון (28 קלפים)" },
+    { c: 8, r: 4, label: "אגדת הגיבורים (32 קלפים)" },
+    { c: 8, r: 5, label: "האתגר הגדול (40 קלפים)" }
+  ];
 
   function cardFaces(pairs) {
     var pool = (CONFIG.memoryImages && CONFIG.memoryImages.length) ? CONFIG.memoryImages : (CONFIG.images || []);
@@ -14,26 +28,31 @@
     return G.shuffle(user.concat(emo));
   }
 
-  function layout(W, H) {
-    var best = null;
-    for (var c = 2; c <= 12; c++) {
-      for (var r = 2; r <= 10; r++) {
-        var n = c * r;
-        if (n % 2 || n > CONFIG.maxMemoryCards) continue;
-        var cell = Math.min((W - GAP * (c - 1)) / c, (H - GAP * (r - 1)) / r);
-        if (cell < CONFIG.minMemoryCard) continue;
-        if (!best || n > best.n || (n === best.n && cell > best.cell)) best = { c: c, r: r, n: n, cell: cell };
-      }
-    }
-    if (!best) {
-      var cc = W > H ? 4 : 3, rr = W > H ? 3 : 4;
-      best = { c: cc, r: rr, n: 12, cell: Math.max(50, Math.min((W - GAP * (cc - 1)) / cc, (H - GAP * (rr - 1)) / rr)) };
-    }
-    best.cell = Math.floor(Math.min(best.cell, 200));
-    return best;
+  function layoutForLevel(W, H, lvIdx) {
+    var spec = MEMORY_LEVELS[Math.max(0, Math.min(lvIdx, MEMORY_LEVELS.length - 1))];
+    var portrait = H > W;
+    var c = portrait ? Math.min(spec.c, spec.r) : Math.max(spec.c, spec.r);
+    var r = portrait ? Math.max(spec.c, spec.r) : Math.min(spec.c, spec.r);
+    var n = c * r;
+    var cell = Math.floor(Math.min((W - GAP * (c - 1)) / c, (H - GAP * (r - 1)) / r, 200));
+    return { c: c, r: r, n: n, cell: Math.max(44, cell), label: spec.label };
   }
 
-  function play(container, players, mini, onDone) {
+  function loadLevel(players) {
+    var a = G.store.load();
+    var key = players === 2 ? "memoryLevel2P" : "memoryLevel1P";
+    var lv = typeof a[key] === "number" ? a[key] : 0;
+    return Math.max(0, Math.min(lv, MEMORY_LEVELS.length - 1));
+  }
+
+  function saveLevel(players, lv) {
+    var a = G.store.load();
+    var key = players === 2 ? "memoryLevel2P" : "memoryLevel1P";
+    a[key] = Math.max(0, Math.min(lv, MEMORY_LEVELS.length - 1));
+    G.store.save(a);
+  }
+
+  function play(container, players, lv, mini, onDone) {
     container.innerHTML =
       '<section class="mem"><div class="scorebar"></div>' +
       '<div class="mem-area"><div class="mem-grid"></div></div></section>';
@@ -47,7 +66,7 @@
       var cell = Math.floor(Math.min((rect.width - GAP * 2) / 3, (rect.height - GAP) / 2, 170));
       lay = { c: 3, r: 2, n: 6, cell: Math.max(60, cell) };
     } else {
-      lay = layout(rect.width, rect.height);
+      lay = layoutForLevel(rect.width, rect.height, lv);
     }
 
     var faces = cardFaces(lay.n / 2);
@@ -73,13 +92,19 @@
 
     function paintBar() {
       if (mini) { bar.innerHTML = '<div class="chip on">מצאו את הזוגות</div>'; return; }
+      var lvBadge = '<div class="chip">שלב ' + (lv + 1) + ' מתוך ' + MEMORY_LEVELS.length + '</div>';
+      var resetBtn = '<button class="btn small alt" id="memLevelsBtn">🎯 שלבים</button>';
       if (players === 1) {
-        bar.innerHTML = '<div class="chip on">זוגות: ' + scores[0] + ' מתוך ' + total + '</div>';
+        bar.innerHTML = lvBadge + '<div class="chip on">זוגות: ' + scores[0] + ' מתוך ' + total + '</div>' + resetBtn;
       } else {
         bar.innerHTML =
+          lvBadge +
           '<div class="chip p1' + (turn === 0 ? " on" : "") + '">שחקן 1: ' + scores[0] + '</div>' +
-          '<div class="chip p2' + (turn === 1 ? " on" : "") + '">שחקן 2: ' + scores[1] + '</div>';
+          '<div class="chip p2' + (turn === 1 ? " on" : "") + '">שחקן 2: ' + scores[1] + '</div>' +
+          resetBtn;
       }
+      var btn = bar.querySelector("#memLevelsBtn");
+      if (btn) btn.onclick = function () { pickLevel(container, players); };
     }
     paintBar();
 
@@ -87,20 +112,30 @@
       G.sfx.win();
       G.confetti(mini ? 40 : 90);
       if (mini) { G.later(onDone, 1000); return; }
+
+      var isLast = lv >= MEMORY_LEVELS.length - 1;
+      var nextLv = isLast ? 0 : lv + 1;
+      saveLevel(players, nextLv);
+
       var title, text = "";
       if (players === 1) {
-        title = "כל הכבוד! מצאת את כל הזוגות";
+        title = isLast ? "אלוף! סיימת את כל 10 השלבים! 🏆" : "כל הכבוד! עברת את שלב " + (lv + 1) + "!";
+        text = isLast ? "מצאת את כל 40 הקלפים!" : "מוכן לשלב " + (nextLv + 1) + " (" + MEMORY_LEVELS[nextLv].label + ")?";
       } else if (scores[0] === scores[1]) {
         title = "תיקו!"; text = "שניכם מצאתם " + scores[0] + " זוגות.";
       } else {
         var w = scores[0] > scores[1] ? 1 : 2;
         title = "שחקן " + w + " ניצח!"; text = scores[0] + " מול " + scores[1];
       }
+
       G.later(function () {
         G.dialog({
-          art: '<span style="font-size:90px">🏆</span>', title: title, text: text,
+          art: '<span style="font-size:90px">' + (isLast ? "👑" : "🏆") + '</span>',
+          title: title,
+          text: text,
           buttons: [
-            { label: "עוד משחק", onClick: function () { play(container, players, false); } },
+            { label: isLast ? "מההתחלה 🔄" : "שלב הבא ⬅️", onClick: function () { play(container, players, nextLv, false); } },
+            { label: "שוב אותו שלב", cls: "alt", onClick: function () { play(container, players, lv, false); } },
             { label: "תפריט", cls: "alt", onClick: function () { G.go("home"); } }
           ]
         });
@@ -137,16 +172,41 @@
     });
   }
 
+  function pickLevel(container, players) {
+    var current = loadLevel(players);
+    var btns = MEMORY_LEVELS.map(function (spec, i) {
+      var cls = i === current ? "btn" : "btn alt";
+      return '<button class="' + cls + ' lv-btn" data-lv="' + i + '">שלב ' + (i + 1) + ' (' + (spec.c * spec.r) + ')</button>';
+    }).join("");
+    container.innerHTML =
+      '<section class="menu">' +
+        '<h2>בחרו שלב (' + (players === 1 ? "שחקן אחד" : "שני שחקנים") + ')</h2>' +
+        '<div class="level-grid">' + btns + '</div>' +
+      '</section>';
+    container.querySelectorAll("[data-lv]").forEach(function (b) {
+      b.onclick = function () {
+        var chosen = +b.dataset.lv;
+        saveLevel(players, chosen);
+        play(container, players, chosen, false);
+      };
+    });
+  }
+
   window.Memory = {
     start: function (container) {
+      var lv1 = loadLevel(1) + 1;
+      var lv2 = loadLevel(2) + 1;
       container.innerHTML =
-        '<section class="menu"><h2>משחק זיכרון</h2><div class="menu-btns">' +
-        '<button class="btn big" data-p="1">👤 שחקן אחד</button>' +
-        '<button class="btn big alt" data-p="2">👥 שני שחקנים</button></div></section>';
+        '<section class="menu"><h2>משחק זיכרון (10 שלבים)</h2><div class="menu-btns">' +
+        '<button class="btn big" data-p="1">👤 שחקן אחד (שלב ' + lv1 + ')</button>' +
+        '<button class="btn big alt" data-p="2">👥 שני שחקנים (שלב ' + lv2 + ')</button></div></section>';
       container.querySelectorAll("[data-p]").forEach(function (b) {
-        b.onclick = function () { play(container, +b.dataset.p, false); };
+        b.onclick = function () {
+          var p = +b.dataset.p;
+          play(container, p, loadLevel(p), false);
+        };
       });
     },
-    mini: function (box, onDone) { play(box, 1, true, onDone); }
+    mini: function (box, onDone) { play(box, 1, 1, true, onDone); }
   };
 })();
