@@ -21,6 +21,12 @@
     if (st.step >= N) st.step = 0;
     if (st.hearts <= 0 || st.hearts > MAX_HEARTS) st.hearts = MAX_HEARTS;
 
+    /* אם המשתמש חזר למשחק שמור שכבר עבר את שלב 5 ועדיין לא קיבל בונוס בסיבוב הזה - מפעילים בונוס מיד */
+    if (!st.bonusPending && st.step >= BONUS_EVERY && st.lastBonusStep < Math.floor(st.step / BONUS_EVERY) * BONUS_EVERY && familyList.length) {
+      st.bonusPending = true;
+      st.lastBonusStep = Math.floor(st.step / BONUS_EVERY) * BONUS_EVERY;
+    }
+
     var fill, runner, stp, villain, captive, qbox, heartsBox, helpersBox, bannerBox;
     var qToken = 0;
     var busy = false;
@@ -83,6 +89,28 @@
       heartsBox.innerHTML = html;
     }
 
+    /* טוען פריים מהווידאו כדי שיוצג אייקון אמיתי גם בטאבלטים ובמובייל */
+    function hydrateVideoThumb(videoEl, fallbackEl) {
+      if (!videoEl) return;
+      videoEl.addEventListener("loadeddata", function () {
+        try {
+          if (videoEl.duration && videoEl.duration > 0.4) {
+            videoEl.currentTime = 0.4;
+          }
+        } catch (e) {}
+      }, { once: true });
+
+      videoEl.addEventListener("seeked", function () {
+        videoEl.style.opacity = "1";
+        if (fallbackEl) fallbackEl.style.display = "none";
+      }, { once: true });
+
+      videoEl.addEventListener("error", function () {
+        videoEl.style.display = "none";
+        if (fallbackEl) fallbackEl.style.display = "grid";
+      }, { once: true });
+    }
+
     function renderHelpers() {
       if (!st.helpers.length) {
         helpersBox.innerHTML = '<span class="helpers-empty">ענו על שאלת בונוס לעזרת המשפחה ⚡</span>';
@@ -91,18 +119,24 @@
       helpersBox.innerHTML = st.helpers.map(function (id, idx) {
         var fh = familyList.find(function (x) { return x.id === id; });
         if (!fh) return "";
-        var thumb = fh.type === "gif"
-          ? '<img src="' + G.urlOf(fh.src) + '" alt="' + fh.name + '">'
-          : '<video src="' + G.urlOf(fh.src) + '#t=0.5" muted playsinline preload="metadata"></video>';
+        var media = fh.type === "gif"
+          ? '<img src="' + G.urlOf(fh.src) + '" alt="' + fh.name + '" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'grid\'">' +
+            '<span class="thumb-fallback" style="display:none">' + fh.icon + '</span>'
+          : '<video src="' + G.urlOf(fh.src) + '" muted playsinline webkit-playsinline preload="auto" style="opacity:0"></video>' +
+            '<span class="thumb-fallback">' + fh.icon + '</span>';
         return (
           '<button type="button" class="helper-chip" data-idx="' + idx + '" title="' + fh.name + ' - ' + fh.title + '">' +
-            '<span class="helper-thumb">' + thumb + '</span>' +
-            '<span class="helper-name">' + fh.icon + ' ' + fh.name + '</span>' +
+            '<span class="helper-thumb">' + media + '</span>' +
+            '<span class="helper-name">' + fh.name + '</span>' +
           '</button>'
         );
       }).join("");
 
       helpersBox.querySelectorAll(".helper-chip").forEach(function (btn) {
+        var vid = btn.querySelector("video");
+        var fb = btn.querySelector(".thumb-fallback");
+        if (vid) hydrateVideoThumb(vid, fb);
+
         btn.onclick = function () {
           if (busy || st.bonusPending) return;
           var idx = parseInt(btn.dataset.idx, 10);
@@ -135,11 +169,14 @@
 
       var mediaHTML = fh.type === "gif"
         ? '<img class="hero-media" src="' + G.urlOf(fh.src) + '" alt="' + fh.name + '">'
-        : '<video class="hero-media" src="' + G.urlOf(fh.src) + '" autoplay playsinline></video>';
+        : '<video class="hero-media" src="' + G.urlOf(fh.src) + '" autoplay playsinline webkit-playsinline preload="auto"></video>';
 
       var ov = G.el(
         '<div class="overlay hero-cutscene">' +
           mediaHTML +
+          '<div class="hero-fallback-stage" hidden>' +
+            '<div class="hero-fallback-ico">' + fh.icon + '</div>' +
+          '</div>' +
           '<div class="hero-caption">' +
             '<div class="hero-caption-name">' + fh.icon + ' ' + fh.name + ' בא לעזרה!</div>' +
             '<div class="hero-caption-sub">' + fh.title + '</div>' +
@@ -150,22 +187,40 @@
 
       ov.querySelector(".hero-skip").onclick = finish;
       document.body.appendChild(ov);
-      G.speak(fh.name + ", " + fh.title + ", בא לעזור!");
+
+      var fbStage = ov.querySelector(".hero-fallback-stage");
 
       if (fh.type === "video") {
         var vid = ov.querySelector("video");
         vid.muted = !!G.muted;
         vid.onended = finish;
-        vid.onerror = function () { setTimeout(finish, 2500); };
+        vid.onerror = function () {
+          vid.hidden = true;
+          fbStage.hidden = false;
+          G.speak(fh.name + ", " + fh.title + ", בא לעזור!");
+          G.later(finish, 3500);
+        };
+        try { vid.load(); } catch (e) {}
         var playPromise = vid.play();
         if (playPromise && playPromise.catch) {
           playPromise.catch(function () {
+            /* אם הדפדפן חסם ניגון אוטומטי עם קול - מנגנים מושתק כדי שהווידאו יתנגן חלק */
             vid.muted = true;
-            vid.play().catch(function () { setTimeout(finish, 3000); });
+            vid.play().catch(function () {
+              vid.hidden = true;
+              fbStage.hidden = false;
+              G.later(finish, 3500);
+            });
           });
         }
         G.later(finish, 11000);
       } else {
+        var img = ov.querySelector("img");
+        img.onerror = function () {
+          img.hidden = true;
+          fbStage.hidden = false;
+        };
+        G.speak(fh.name + ", " + fh.title + ", בא לעזור!");
         G.later(finish, 5500);
       }
     }
@@ -254,8 +309,8 @@
         G.sfx.win();
         G.confetti(60);
         var previewHTML = picked.type === "gif"
-          ? '<img src="' + G.urlOf(picked.src) + '" alt="' + picked.name + '" style="height:100%;border-radius:18px;border:4px solid var(--ink);">'
-          : '<video src="' + G.urlOf(picked.src) + '" autoplay loop muted playsinline style="height:100%;border-radius:18px;border:4px solid var(--ink);"></video>';
+          ? '<img src="' + G.urlOf(picked.src) + '" alt="' + picked.name + '" style="height:100%;border-radius:18px;border:4px solid var(--ink);" onerror="this.outerHTML=\'<div style=font-size:90px>' + picked.icon + '</div>\'">'
+          : '<video src="' + G.urlOf(picked.src) + '" autoplay loop muted playsinline webkit-playsinline style="height:100%;border-radius:18px;border:4px solid var(--ink);" onerror="this.outerHTML=\'<div style=font-size:90px>' + picked.icon + '</div>\'"></video>';
 
         G.dialog({
           art: previewHTML,

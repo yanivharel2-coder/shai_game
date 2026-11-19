@@ -474,3 +474,26 @@ body {
   left: max(16px, env(safe-area-inset-left));
   z-index: 95;
 }
+
+
+.helper-thumb {
+  position: relative;
+}
+.thumb-fallback {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: clamp(20px, 3.4vmin, 30px);
+  background: #fff;
+}
+.hero-fallback-stage {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+}
+.hero-fallback-ico {
+  font-size: clamp(110px, 28vmin, 220px);
+  animation: pop 0.6s infinite alternate;
+}
